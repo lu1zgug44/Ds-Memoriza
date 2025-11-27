@@ -21,20 +21,6 @@ class MemoryGame {
             'img8.jpg'
         ];
         
-        // Opção alternativa: usar imagens da web
-        /*
-        this.images = [
-            'https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=200&h=200&fit=crop',
-            'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=200&h=200&fit=crop',
-            'https://images.unsplash.com/photo-1511044568932-338cba0ad803?w=200&h=200&fit=crop',
-            'https://images.unsplash.com/photo-1514984879728-be0aff75a6e8?w=200&h=200&fit=crop',
-            'https://images.unsplash.com/photo-1555169062-013468b47731?w=200&h=200&fit=crop',
-            'https://images.unsplash.com/photo-1558788353-f76d92427f16?w=200&h=200&fit=crop',
-            'https://images.unsplash.com/photo-1533738363-b7f9aef128ce?w=200&h=200&fit=crop',
-            'https://images.unsplash.com/photo-1595433707802-6b2626ef1c91?w=200&h=200&fit=crop'
-        ];
-        */
-        
         this.totalPairs = 8;
         
         this.initializeGame();
@@ -49,12 +35,13 @@ class MemoryGame {
     }
     
     generateCards() {
+        // cria o array com pares e embaralha
         let cardImages = [...this.images, ...this.images];
         cardImages = this.shuffleArray(cardImages);
         
-        this.cards = cardImages.map((image, index) => ({
-            id: index,
-            image: image,
+        // cada carta tem seu índice (index) no array; não usamos id separado
+        this.cards = cardImages.map((image) => ({
+            image,
             flipped: false,
             matched: false
         }));
@@ -73,10 +60,11 @@ class MemoryGame {
         const gameBoard = document.getElementById('game-board');
         gameBoard.innerHTML = '';
         
-        this.cards.forEach(card => {
+        this.cards.forEach((card, index) => {
             const cardElement = document.createElement('div');
             cardElement.className = 'card';
-            cardElement.dataset.id = card.id;
+            // usamos data-index (índice atual no array this.cards)
+            cardElement.dataset.index = index;
             
             if (card.flipped || card.matched) {
                 cardElement.classList.add('flipped');
@@ -92,7 +80,6 @@ class MemoryGame {
                 </div>
             `;
             
-            cardElement.addEventListener('click', () => this.handleCardClick(card.id));
             gameBoard.appendChild(cardElement);
         });
     }
@@ -129,55 +116,81 @@ class MemoryGame {
         
         cards.forEach((card, index) => {
             setTimeout(() => {
-                const cardId = parseInt(card.dataset.id);
+                const dataIndex = parseInt(card.dataset.index, 10);
+                if (Number.isNaN(dataIndex)) return;
                 if (show) {
                     card.classList.add('flipped');
-                    this.cards[cardId].flipped = true;
+                    this.cards[dataIndex].flipped = true;
                 } else {
                     card.classList.remove('flipped');
-                    this.cards[cardId].flipped = false;
+                    this.cards[dataIndex].flipped = false;
                 }
             }, index * 50);
         });
     }
     
-    handleCardClick(cardId) {
+    // agora usamos delegação de evento: recebe o data-index da carta clicada
+    handleCardClickByIndex(dataIndex) {
+        // proteção: índice válido
+        if (dataIndex == null) return;
+        const index = parseInt(dataIndex, 10);
+        if (Number.isNaN(index) || index < 0 || index >= this.cards.length) return;
+        
         if (this.animationInProgress || !this.gameStarted) {
             return;
         }
         
-        const card = this.cards[cardId];
+        const card = this.cards[index];
         
-        if (card.flipped || card.matched || this.flippedCards.length === 2) {
+        if (!card || card.flipped || card.matched || this.flippedCards.length === 2) {
             return;
         }
         
-        if (this.moves === 0 && this.flippedCards.length === 0) {
+        // inicia o timer no primeiro movimento (quando ainda não houve movimentos)
+        if (this.moves === 0 && this.flippedCards.length === 0 && !this.gameStarted) {
+            // mas normalmente gameStarted já será true
+            this.startTimer();
+        }
+        if (this.moves === 0 && this.flippedCards.length === 0 && this.gameStarted && !this.timerInterval) {
             this.startTimer();
         }
         
+        // vira a carta
         card.flipped = true;
-        this.flippedCards.push(card);
+        this.flippedCards.push({ ...card, index }); // guarda também o índice
         this.renderBoard();
         
         if (this.flippedCards.length === 2) {
             this.moves++;
             this.updateDisplay();
-            this.checkForMatch();
+            // bloqueia cliques curtos durante verificação
+            this.animationInProgress = true;
+            setTimeout(() => {
+                this.checkForMatch();
+            }, 250); // pequeno delay para renderizar a segunda face antes de checar
         }
     }
     
     checkForMatch() {
-        const [card1, card2] = this.flippedCards;
+        const [c1, c2] = this.flippedCards;
+        if (!c1 || !c2) {
+            this.animationInProgress = false;
+            return;
+        }
+        
+        const card1 = this.cards[c1.index];
+        const card2 = this.cards[c2.index];
         
         if (card1.image === card2.image) {
             card1.matched = true;
             card2.matched = true;
             this.matches++;
             
-            this.animateMatch(card1.id, card2.id);
+            this.animateMatch(c1.index, c2.index);
             
             this.flippedCards = [];
+            this.renderBoard();
+            this.animationInProgress = false;
             
             if (this.matches === this.totalPairs) {
                 setTimeout(() => this.endGame(), 500);
@@ -185,15 +198,14 @@ class MemoryGame {
                 this.showMessage('Parabéns! Combinação encontrada!');
             }
         } else {
-            setTimeout(() => {
-                this.animateMismatch(card1.id, card2.id);
-            }, 1000);
+            // anima mismatch e depois desvira
+            this.animateMismatch(c1.index, c2.index);
         }
     }
     
-    animateMatch(cardId1, cardId2) {
-        const card1 = document.querySelector(`.card[data-id="${cardId1}"]`);
-        const card2 = document.querySelector(`.card[data-id="${cardId2}"]`);
+    animateMatch(index1, index2) {
+        const card1 = document.querySelector(`.card[data-index="${index1}"]`);
+        const card2 = document.querySelector(`.card[data-index="${index2}"]`);
         
         if (card1 && card2) {
             card1.style.animation = 'pulse 0.5s ease';
@@ -206,9 +218,9 @@ class MemoryGame {
         }
     }
     
-    animateMismatch(cardId1, cardId2) {
-        const card1 = document.querySelector(`.card[data-id="${cardId1}"]`);
-        const card2 = document.querySelector(`.card[data-id="${cardId2}"]`);
+    animateMismatch(index1, index2) {
+        const card1 = document.querySelector(`.card[data-index="${index1}"]`);
+        const card2 = document.querySelector(`.card[data-index="${index2}"]`);
         
         if (card1 && card2) {
             card1.style.animation = 'shake 0.5s ease';
@@ -218,15 +230,25 @@ class MemoryGame {
                 card1.style.animation = '';
                 card2.style.animation = '';
                 
-                this.cards[cardId1].flipped = false;
-                this.cards[cardId2].flipped = false;
+                // desvira as cartas no modelo de dados
+                this.cards[index1].flipped = false;
+                this.cards[index2].flipped = false;
                 this.flippedCards = [];
                 this.renderBoard();
+                this.animationInProgress = false;
             }, 500);
+        } else {
+            // fallback: caso algo esteja estranho, apenas resetar o estado das cartas
+            this.cards[index1].flipped = false;
+            this.cards[index2].flipped = false;
+            this.flippedCards = [];
+            this.renderBoard();
+            this.animationInProgress = false;
         }
     }
     
     startTimer() {
+        if (this.timerInterval) return;
         this.timerInterval = setInterval(() => {
             this.timer++;
             this.updateDisplay();
@@ -284,11 +306,21 @@ class MemoryGame {
         this.gameStarted = false;
         this.animationInProgress = false;
         this.timer = 0;
+        this.updateDisplay();
         
         this.initializeGame();
     }
     
     setupEventListeners() {
+        // delegação: 1 listener no board (evita múltiplos listeners duplicados)
+        const gameBoard = document.getElementById('game-board');
+        gameBoard.addEventListener('click', (e) => {
+            const cardEl = e.target.closest('.card');
+            if (!cardEl) return;
+            const dataIndex = cardEl.dataset.index;
+            this.handleCardClickByIndex(dataIndex);
+        });
+        
         document.getElementById('reset-btn').addEventListener('click', () => {
             this.resetGame();
         });
